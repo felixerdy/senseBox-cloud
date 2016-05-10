@@ -44,7 +44,7 @@ Jimp.read("clouds.jpg", function (err, image) {
           }
         }
 
-        if(alpha > azimin && alpha < azimax) {
+        if(alpha > azimin && alpha < azimax && pos.altitude > 45) {
           //image.setPixelColor(0xFFFFFF, x, y);
         } else {
           var rgb = Jimp.intToRGBA(image.getPixelColor(x, y));
@@ -52,7 +52,8 @@ Jimp.read("clouds.jpg", function (err, image) {
           //console.log(hsv.h);
           //if(rgb2hsv(rgb.r, rgb.g, rgb.b).v > 49) {       // helligkeit
           //if((hsv.h < 120 || hsv.h > 300) && hsv.v > 30 ) {  // blauwert & helligkeit
-          if(hsv.s < 30) {  // saettigung
+          //if(hsv.s < 15) {  // saettigung
+          if(hsv.v > 60) {  // saettigung
             // Pixel is cloud
             counter ++;
             image.setPixelColor(0xffffffff, x, y);
