@@ -1,16 +1,17 @@
-var Jimp = require('jimp')
 var request = require('request')
+const fs = require('fs')
 
 var sensebox_id = '5710de1a45fd40c8198ccece'
-var sensor_id = '5784ec9a6078ab1200a4f73d'
+var sensor_id = '57809b186fea66130081cb6d'
+
 
 // geolocation of sensebox
 var location = {
-  lon: 51.9554,
-  lat: 7.6206
+    lon: 51.9554,
+    lat: 7.6206
 }
 
-var serverUrl = 'https://myserverurl.com/'
+var serverUrl = 'http://myserverurl'
 
 setInterval(function() {
         var spawn = require('child_process').spawn;
@@ -29,7 +30,6 @@ setInterval(function() {
             takePhoto("pot", data.toString('utf-8').split('.')[0], potSS)
 
         })
-        intervalCounter++
 
     }, 10000) // 10 sec
 
@@ -45,8 +45,8 @@ function takePhoto(type, luminance, shutterSpeed) {
         shutterSpeed = 6
     }
     var spawnSync = require('child_process').spawnSync
-    // filename of new photo
-    var imageSrc = 'images/image_' + luminance + '_' + shutterSpeed.toFixed(6) + '_' + type + '_awb_sun_iso100_backlit.jpg'
+        // filename of new photo
+    var imageSrc = 'image.jpg'
     var cameraSpawn = spawnSync(
         'raspistill', [
             '-o',
@@ -65,19 +65,24 @@ function takePhoto(type, luminance, shutterSpeed) {
         ]
     )
 
-    // read photo and calculate cloud coverage
-    Jimp.read(imageSrc, function(err, image) {
-      request.post({
-          url: serverUrl,
-          form: {
-              image: image,
-              location: location,
-              sensebox_id: sensebox_id,
-              sensor_id: sensor_id,
-              timestamp: new Date()
-          }
-      }, function(err, httpResponse, body) {
-          console.log('own post respond: ' + httpResponse.statusCode)
-      });
-    })
+    var bitmap = fs.readFileSync(__dirname + '/' + imageSrc)
+    var base64image = new Buffer(bitmap).toString('base64')
+
+    var formData = {
+        image: base64image,
+        location: location,
+        sensebox_id: sensebox_id,
+        sensor_id: sensor_id,
+        timestamp: new Date()
+    }
+
+    request.post({
+        url: serverUrl,
+        form: formData
+    }, function(err, httpResponse, body) {
+        if (err)
+            console.log(err)
+        else
+            console.log('respond: ' + httpResponse.statusCode)
+    });
 }
