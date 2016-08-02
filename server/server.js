@@ -12,6 +12,12 @@ app.use(bodyParser.urlencoded({
     limit: '50mb'
 }));
 
+// http://stackoverflow.com/a/26815894
+var dir = './images';
+if (!fs.existsSync(dir)){
+    fs.mkdirSync(dir);
+}
+
 
 var averageCoverage = []
 var intervalCounter = 0
