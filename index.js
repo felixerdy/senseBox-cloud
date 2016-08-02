@@ -1,187 +1,195 @@
-var suncalc = require("suncalc");
-var Jimp = require("jimp");
-
-var express = require('express');
-var app = express();
-
-var RaspiCam = require("raspicam");
-
-var fs = require("fs");
-
-var camera = new RaspiCam({
-    mode: "photo",
-    output: "cloud_images/current.png",
-    encoding: "png",
-    timeout: 0 // take the picture immediately
-});
+var Jimp = require('jimp')
+var request = require('request')
+var SunCalc = require('suncalc')
 
 
-var cloudCoverage = 0.0
-var imgTaken = new Date()
-
-app.use(express.static(__dirname));
-app.set('views', './views')
-app.set('view engine', 'pug')
-
-app.get('/', function(req, res) {
-    res.render('index', {
-        coverage: 'coverage: ' + cloudCoverage + '%',
-        timestamp: imgTaken
-    });
-});
+var averageCoverage = []
+var intervalCounter = 0
 
 setInterval(function() {
-        /**
-        console.log('in set Timeout')
-        var myDate = new Date();
-        var dateString = (myDate.getDate()) + '-' + (myDate.getMonth() + 1) + '-' + (myDate.getFullYear()) + '--' + (myDate.getHours()) + '-' + (myDate.getMinutes() + 1)
-        fs.rename('cloud_images/current.jpg', 'cloud_images/' + dateString + '.jpg', function(err) {
-          if ( err ) console.log('ERROR: ' + err);
-        });
-        fs.rename('cloud_images/clouds_classified.jpg', 'cloud_images/' + dateString + '_classified.jpg', function(err) {
-          if ( err ) console.log('ERROR: ' + err);
-        });
-        **/
-        console.log('starting camera')
-        camera.start();
-    }, 60000) // all 10 minutes
+        var spawn = require('child_process').spawn;
+
+        // get luminance
+        var luminanceSpawn = spawn(process.cwd() + '/./tsl');
+        luminanceSpawn.stdout.on('data', (data) => {
+            console.log(data.toString('utf-8').split('.')[0])
+            var lux = parseFloat(data.toString('utf-8').split('.')[0])
+                // var expSS = 0.0004*Math.exp(-7*(Math.pow(10, -5)*lux.toFixed(6)))
+
+            // use own function to calculate shutterSpeed
+            var potSS = 0.7368 * Math.pow(lux.toFixed(6), -0.915)
+
+            // takePhoto("exp", data.toString('utf-8').split('.')[0], expSS)
+            takePhoto("pot", data.toString('utf-8').split('.')[0], potSS)
+
+        })
+        intervalCounter++
+
+    }, 5000) // 10 sec
 
 
-//listen for the "read" event triggered when each new photo/video is saved
-camera.on("read", function(err, timestamp, filename) {
-    console.log(filename.indexOf('~'))
-    if (filename.indexOf('~') === -1) {
-        setTimeout(function() {
-            Jimp.read('cloud_images/' + filename, function(err, image) {
-                if (err) throw err;
+/**
+ *  Take a photo and calculate cloud coverage
+ *  @param type which shutterSpeed function is used (only used in filename)
+ *  @param luminance the current luminance (only used in filename)
+ *  @param shutterSpeed the required shutterSpeed
+ */
+function takePhoto(type, luminance, shutterSpeed) {
+    if (luminance === 0) {
+        shutterSpeed = 6
+    }
+    var spawnSync = require('child_process').spawnSync
+    // filename of new photo
+    var imageSrc = 'images/image_' + luminance + '_' + shutterSpeed.toFixed(6) + '_' + type + '_awb_sun_iso100_backlit.jpg'
+    var cameraSpawn = spawnSync(
+        'raspistill', [
+            '-o',
+            imageSrc,
+            '-t',
+            '1',
+            '-ss',
+            shutterSpeed * 1000000,
+            '--metering',
+            'backlit',
+            '--ISO',
+            '100',
+            '--awb',
+            'sun',
+            '--nopreview'
+        ]
+    )
 
-                var pos = suncalc.getPosition(new Date(), 51.969, 7.596);
+    // read photo and calculate cloud coverage
+    Jimp.read(imageSrc, function(err, image) {
+        var counter = 0
 
-                pos.azimuth = 180 + (pos.azimuth * 57.295779513082320876798154814106);
-                pos.altitude = (pos.altitude * 57.295779513082320876798154814106) * 0.7;
+        // required, otherwise the sun is calculated on the wrong side
+        image.rotate(180)
+        image.flip(true, false)
 
+        // current sun position in Münster
+        var sunPos = SunCalc.getPosition(new Date(), 51.9554, 7.6206)
+        sunPos.azimuth *= (180 / Math.PI)
+        sunPos.azimuth += 180
 
-                var azimin = ((pos.azimuth - pos.altitude) < 0 ? 360 - Math.abs(pos.azimuth - pos.altitude) : pos.azimuth - pos.altitude);
-                var azimax = (pos.azimuth + pos.altitude) > 360 ? 360 - pos.azimuth + pos.altitude : pos.azimuth + pos.altitude;
+        // factor 0.7 for a big kegel
+        sunPos.altitude = sunPos.altitude * (180 / Math.PI) * 0.7;
 
-                var centerx = image.bitmap.width / 2;
-                var centery = image.bitmap.height / 2;
+        // center of the image
+        var centerx = Math.floor(image.bitmap.width / 2)
+        var centery = Math.floor(image.bitmap.height / 2)
 
-                console.log(pos);
+        // min and max for the kegel
+        var azimin = ((sunPos.azimuth - sunPos.altitude) < 0 ? 360 - Math.abs(sunPos.azimuth - sunPos.altitude) : sunPos.azimuth - sunPos.altitude);
+        var azimax = (sunPos.azimuth + sunPos.altitude) > 360 ? 360 - sunPos.azimuth + sunPos.altitude : sunPos.azimuth + sunPos.altitude;
 
-                image.contrast(0.1)
-                image.write("cloud_images/current.png"); // save
+        console.log(sunPos)
+        console.log({
+            azimin,
+            azimax
+        })
 
-                var counter = 0;
+        for (var x = 0; x < image.bitmap.width; x++) {
+            for (var y = 0; y < image.bitmap.height; y++) {
 
-                for (var x = 0; x < image.bitmap.width; x++) {
-                    for (var y = 0; y < image.bitmap.height; y++) {
-                        var dx = Math.abs(x - centerx);
-                        var dy = Math.abs(y - centery);
+                // calculate angle of current pixel
+                var dx = Math.abs(x - centerx);
+                var dy = Math.abs(y - centery);
 
-                        alpha = Math.atan(dx / dy);
+                var alpha = 0
 
-                        alpha = alpha * 57.295779513082320876798154814106;
-
-                        if (x > centerx) {
-                            if (y > centery) {
-                                alpha = alpha + 270;
-                            } else {
-
-                            }
-                        } else {
-                            if (y > centery) {
-                                alpha = alpha + 180;
-                            } else {
-                                alpha = alpha + 90;
-                            }
-                        }
-
-                        if (alpha > azimin && alpha < azimax && pos.altitude > 90) {
-                            //image.setPixelColor(0xFFFFFF, x, y);
-                        } else {
-                            var rgb = Jimp.intToRGBA(image.getPixelColor(x, y));
-                            var hsv = rgb2hsv(rgb.r, rgb.g, rgb.b);
-                            //console.log(hsv.h);
-                            //if(rgb2hsv(rgb.r, rgb.g, rgb.b).v > 49) {       // helligkeit
-                            //if((hsv.h < 120 || hsv.h > 300) && hsv.v > 30 ) {  // blauwert & helligkeit
-                            //if(hsv.s < 10) {  // saettigung
-                            //if(hsv.v > 60) {  // helligkeit
-                            if ((hsv.h < 140 || hsv.h > 310) && hsv.s < 20) { // blauwert & seattigung
-                                // Pixel is cloud
-                                counter++;
-                                image.setPixelColor(0xffffffff, x, y);
-                            } else {
-                                // Pixel is sky
-                                image.setPixelColor(0x00000000, x, y);
-                            }
-
-                        }
-
+                if (x > centerx) {
+                    if (y > centery) {
+                        alpha = Math.atan(dx / dy) * (180 / Math.PI);
+                    } else {
+                        alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 90;
+                    }
+                } else {
+                    if (y > centery) {
+                        alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 270;
+                    } else {
+                        alpha = (Math.atan(dx / dy) * (180 / Math.PI)) + 180;
                     }
                 }
+                // TODO: add thereshold when sun has no impact on image
+                if (alpha > azimin && alpha < azimax && altitude > 75) {
+                    image.setPixelColor(0x000000ff, x, y);
+                } else {
 
-                var imageSize = image.bitmap.width * image.bitmap.height;
+                    var hex = image.getPixelColor(x, y)
+                    var rgb = Jimp.intToRGBA(hex)
+                    var rbr = rgb.r / rgb.b
+                        //console.log(rbr)
+                    if (rgb.r > 250 && rgb.g > 250 && rgb.b > 250) { // volle sättigung -> sonne
+                        image.setPixelColor(0xffffffff, x, y); // white
+                    } else {
+                        counter++
+                        if (rbr >= 1) {
+                            image.setPixelColor(0xff0000ff, x, y); // rot
+                        } else if (rbr < 1 && rbr >= 0.95) {
+                            image.setPixelColor(0xfffc00ff, x, y); // gelb
+                        } else if (rbr < 0.95 && rbr >= 0.85) {
+                            image.setPixelColor(0x1cff00ff, x, y); // gruen
+                        } else {
+                            image.setPixelColor(0x400ffff, x, y); // blau
+                            counter--
+                        }
+                    }
+                }
+            }
+        }
+        // calculate coverage in %
+        var coverage = ((counter / (image.bitmap.width * image.bitmap.height)) * 100)
 
-                console.log((counter / imageSize) * 100 + "");
+        averageCoverage.push(coverage)
 
-                cloudCoverage = (counter / imageSize) * 100;
-                imgTaken = new Date(timestamp).toISOString()
+        // use 6 measurements to calculate the average coverage during the last interval
+        if (intervalCounter % 6 == 0) {
+            var sum = 0
+            for (var i = 0; i < averageCoverage.length; i++) {
+                sum += averageCoverage[i]
+            }
+            var avg = sum / averageCoverage.length
 
-                image.write("cloud_images/clouds_classified.png"); // save
+            // post data to opensensemap
+            postToOSeM(avg)
 
+            averageCoverage = [] // flush array
+        }
+
+        image.write(imageSrc.split('.jpg')[0] + '-output.jpg')
+    })
+}
+
+/*
+ *  post coverage to openSenseMap
+ *  @param coverage the measured coverage 
+ */
+function postToOSeM(coverage) {
+    // post measured coverage
+    request.post({
+        url: 'https://api.opensensemap.org/boxes/5710de1a45fd40c8198ccece/57809b186fea66130081cb6d',
+        form: {
+            value: coverage.toFixed(2).toString(),
+            createdAt: (new Date()).toISOString()
+        }
+    }, function(err, httpResponse, body) {
+        console.log('own post respond: ' + httpResponse.statusCode)
+    });
+
+    // get ifgi ceilometer coverage and post it
+    request('http://www.uni-muenster.de/Klima/data/0017behg_de.txt', function(error, response, body) {
+        if (!error && response.statusCode == 200) {
+            var ifgiCoverage = body.split('/8')[0]
+            request.post({
+                url: 'https://api.opensensemap.org/boxes/5710de1a45fd40c8198ccece/5784ec9a6078ab1200a4f73d',
+                form: {
+                    value: ifgiCoverage,
+                    createdAt: (new Date()).toISOString()
+                }
+            }, function(err, httpResponse, body) {
+                console.log('ifgi post respond: ' + httpResponse.statusCode)
             });
-        }, 60000)
-    }
-});
-
-app.listen(3000, function() {
-    console.log('Example app listening on port 3000!');
-});
-
-
-
-
-
-
-
-
-function rgb2hsv() {
-    var rr, gg, bb,
-        r = arguments[0] / 255,
-        g = arguments[1] / 255,
-        b = arguments[2] / 255,
-        h, s,
-        v = Math.max(r, g, b),
-        diff = v - Math.min(r, g, b),
-        diffc = function(c) {
-            return (v - c) / 6 / diff + 1 / 2;
-        };
-
-    if (diff == 0) {
-        h = s = 0;
-    } else {
-        s = diff / v;
-        rr = diffc(r);
-        gg = diffc(g);
-        bb = diffc(b);
-
-        if (r === v) {
-            h = bb - gg;
-        } else if (g === v) {
-            h = (1 / 3) + rr - bb;
-        } else if (b === v) {
-            h = (2 / 3) + gg - rr;
         }
-        if (h < 0) {
-            h += 1;
-        } else if (h > 1) {
-            h -= 1;
-        }
-    }
-    return {
-        h: Math.round(h * 360),
-        s: Math.round(s * 100),
-        v: Math.round(v * 100)
-    };
+    })
 }
