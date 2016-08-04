@@ -14,7 +14,7 @@ app.use(bodyParser.urlencoded({
 
 // http://stackoverflow.com/a/26815894
 var dir = './images';
-if (!fs.existsSync(dir)){
+if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir);
 }
 
@@ -24,7 +24,6 @@ var intervalCounter = 0
 
 app.post('/', function(req, res) {
     intervalCounter++
-    //console.log(req.body)
 
     // http://stackoverflow.com/a/8111863
     var decodedImage = new Buffer(req.body.image, 'base64');
@@ -32,7 +31,7 @@ app.post('/', function(req, res) {
 
     Jimp.read('image_decoded.jpg', function(err, image) {
 
-      image.write('images/image_' + req.body.timestamp + '.jpg')
+        image.write('images/image_' + req.body.timestamp + '.jpg')
 
         // counts the cloud pixels
         var counter = 0;
@@ -41,101 +40,120 @@ app.post('/', function(req, res) {
         image.rotate(180)
         image.flip(true, false)
 
-        // current sun position
-        var sunPos = SunCalc.getPosition(new Date(req.body.timestamp), parseFloat(req.body.location.lon), parseFloat(req.body.location.lat))
-        sunPos.azimuth *= (180 / Math.PI)
-        sunPos.azimuth += 180
+        // dummy location near Muenster
+        var location = {
+            lon: 7.6,
+            lat: 51.9
+        }
 
-        // factor 0.7 for a big kegel
-        sunPos.altitude = sunPos.altitude * (180 / Math.PI) * 0.7;
+        // GET location of sensesBox trough senseBox API
+        request('https://api.opensensemap.org/boxes/' + req.body.sensebox_id, function(error, response, body) {
+            if (!error && response.statusCode == 200) {
+                console.log(JSON.parse(body.toString()).loc[0].geometry.coordinates)
+                location.lon = (JSON.parse(body.toString())).loc[0].geometry.coordinates[0]
+                location.lat = (JSON.parse(body.toString())).loc[0].geometry.coordinates[1]
 
-        // center of the image
-        var centerx = Math.floor(image.bitmap.width / 2)
-        var centery = Math.floor(image.bitmap.height / 2)
+                // current sun position
+                var sunPos = SunCalc.getPosition(new Date(req.body.timestamp), location.lon, location.lat)
+                sunPos.azimuth *= (180 / Math.PI)
+                sunPos.azimuth += 180
 
-        // min and max for the kegel
-        var azimin = ((sunPos.azimuth - sunPos.altitude) < 0 ? 360 - Math.abs(sunPos.azimuth - sunPos.altitude) : sunPos.azimuth - sunPos.altitude);
-        var azimax = (sunPos.azimuth + sunPos.altitude) > 360 ? 360 - sunPos.azimuth + sunPos.altitude : sunPos.azimuth + sunPos.altitude;
+                // factor 0.7 for a big kegel
+                sunPos.altitude = sunPos.altitude * (180 / Math.PI) * 0.7;
 
-        console.log(sunPos)
-        console.log({
-            azimin,
-            azimax
-        })
+                // center of the image
+                var centerx = Math.floor(image.bitmap.width / 2)
+                var centery = Math.floor(image.bitmap.height / 2)
 
-        for (var x = 0; x < image.bitmap.width; x++) {
-            for (var y = 0; y < image.bitmap.height; y++) {
+                // min and max for the kegel
+                var azimin = ((sunPos.azimuth - sunPos.altitude) < 0 ? 360 - Math.abs(sunPos.azimuth - sunPos.altitude) : sunPos.azimuth - sunPos.altitude);
+                var azimax = (sunPos.azimuth + sunPos.altitude) > 360 ? 360 - sunPos.azimuth + sunPos.altitude : sunPos.azimuth + sunPos.altitude;
 
-                // calculate angle of current pixel
-                var dx = Math.abs(x - centerx);
-                var dy = Math.abs(y - centery);
+                console.log(sunPos)
+                console.log({
+                    azimin,
+                    azimax
+                })
 
-                var alpha = 0
+                // double loop for each pixel in image
+                for (var x = 0; x < image.bitmap.width; x++) {
+                    for (var y = 0; y < image.bitmap.height; y++) {
 
-                if (x > centerx) {
-                    if (y > centery) {
-                        alpha = Math.atan(dx / dy) * (180 / Math.PI);
-                    } else {
-                        alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 90;
-                    }
-                } else {
-                    if (y > centery) {
-                        alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 270;
-                    } else {
-                        alpha = (Math.atan(dx / dy) * (180 / Math.PI)) + 180;
-                    }
-                }
-                // TODO: add thereshold when sun has no impact on image
-                if (alpha > azimin && alpha < azimax && sunPos.altitude > 75) {
-                    image.setPixelColor(0x000000ff, x, y);
-                } else {
+                        // calculate angle of current pixel
+                        var dx = Math.abs(x - centerx);
+                        var dy = Math.abs(y - centery);
 
-                    var hex = image.getPixelColor(x, y)
-                    var rgb = Jimp.intToRGBA(hex)
-                    var rbr = rgb.r / rgb.b
-                    if (rgb.r > 250 && rgb.g > 250 && rgb.b > 250) { // volle sättigung -> sonne
-                        image.setPixelColor(0xffffffff, x, y); // white
-                    } else {
-                        counter++
-                        if (rbr >= 1) {
-                            image.setPixelColor(0xff0000ff, x, y); // rot
-                        } else if (rbr < 1 && rbr >= 0.95) {
-                            image.setPixelColor(0xfffc00ff, x, y); // gelb
-                        } else if (rbr < 0.95 && rbr >= 0.85) {
-                            image.setPixelColor(0x1cff00ff, x, y); // gruen
+                        // angle between center and current pixel
+                        var alpha = 0
+
+                        if (x > centerx) {
+                            if (y > centery) {
+                                alpha = Math.atan(dx / dy) * (180 / Math.PI);
+                            } else {
+                                alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 90;
+                            }
                         } else {
-                            image.setPixelColor(0x400ffff, x, y); // blau
-                            counter--
+                            if (y > centery) {
+                                alpha = (Math.atan(dy / dx) * (180 / Math.PI)) + 270;
+                            } else {
+                                alpha = (Math.atan(dx / dy) * (180 / Math.PI)) + 180;
+                            }
+                        }
+                        // TODO: add thereshold when sun has no impact on image
+                        if (alpha > azimin && alpha < azimax && sunPos.altitude > 75) {
+                            image.setPixelColor(0x000000ff, x, y);
+                        } else {
+
+                            var hex = image.getPixelColor(x, y)
+                            var rgb = Jimp.intToRGBA(hex)
+                            var rbr = rgb.r / rgb.b
+                            if (rgb.r > 250 && rgb.g > 250 && rgb.b > 250) { // volle sättigung -> sonne
+                                image.setPixelColor(0xffffffff, x, y); // white
+                            } else {
+                                counter++
+                                if (rbr >= 1) {
+                                    image.setPixelColor(0xff0000ff, x, y); // rot
+                                } else if (rbr < 1 && rbr >= 0.95) {
+                                    image.setPixelColor(0xfffc00ff, x, y); // gelb
+                                } else if (rbr < 0.95 && rbr >= 0.85) {
+                                    image.setPixelColor(0x1cff00ff, x, y); // gruen
+                                } else {
+                                    image.setPixelColor(0x400ffff, x, y); // blau
+                                    counter--
+                                }
+                            }
                         }
                     }
                 }
+                // calculate coverage in %
+                var coverage = ((counter / (image.bitmap.width * image.bitmap.height)) * 100)
+                console.log('coverage: ' + coverage)
+
+                // TODO: currently only one box is supported
+                averageCoverage.push(coverage)
+
+                // use 6 measurements to calculate the average coverage during the last interval
+                if (intervalCounter % 6 == 0 && intervalCounter > 0) {
+                    var sum = 0
+                    for (var i = 0; i < averageCoverage.length; i++) {
+                        sum += averageCoverage[i]
+                    }
+                    var avg = sum / averageCoverage.length
+
+                    // post data to opensensemap
+                    postToOSeM(avg, req.body.sensebox_id, req.body.sensor_id, new Date(req.body.timestamp))
+
+                    averageCoverage = [] // flush array
+                }
+
+                image.rotate(180)
+                image.flip(true, false)
+                image.write('images/image_' + req.body.timestamp + '_classified.jpg')
             }
-        }
-        // calculate coverage in %
-        var coverage = ((counter / (image.bitmap.width * image.bitmap.height)) * 100)
-        console.log('coverage: ' + coverage)
-
-        averageCoverage.push(coverage)
-
-        // use 6 measurements to calculate the average coverage during the last interval
-        if (intervalCounter % 6 == 0) {
-            var sum = 0
-            for (var i = 0; i < averageCoverage.length; i++) {
-                sum += averageCoverage[i]
-            }
-            var avg = sum / averageCoverage.length
-
-            // post data to opensensemap
-            postToOSeM(avg, req.body.sensebox_id, req.body.sensor_id, new Date(req.body.timestamp))
-
-            averageCoverage = [] // flush array
-        }
-
-        image.rotate(180)
-        image.flip(true, false)
-        image.write('images/image_' + req.body.timestamp + '_classified.jpg')
+        })
 
     });
+
 });
 
 /*

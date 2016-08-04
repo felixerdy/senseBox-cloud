@@ -4,13 +4,6 @@ const fs = require('fs')
 var sensebox_id = '5710de1a45fd40c8198ccece'
 var sensor_id = '57809b186fea66130081cb6d'
 
-
-// geolocation of sensebox
-var location = {
-    lon: 51.9554,
-    lat: 7.6206
-}
-
 var serverUrl = 'http://myserverurl'
 
 setInterval(function() {
@@ -70,7 +63,6 @@ function takePhoto(type, luminance, shutterSpeed) {
 
     var formData = {
         image: base64image,
-        location: location,
         sensebox_id: sensebox_id,
         sensor_id: sensor_id,
         timestamp: new Date()
