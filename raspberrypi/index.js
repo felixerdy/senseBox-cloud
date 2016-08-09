@@ -4,7 +4,7 @@ const fs = require('fs')
 var sensebox_id = '5710de1a45fd40c8198ccece'
 var sensor_id = '57809b186fea66130081cb6d'
 
-var serverUrl = 'http://myserverurl'
+var serverUrl = 'http://myurl.com'
 
 setInterval(function() {
         var spawn = require('child_process').spawn;
