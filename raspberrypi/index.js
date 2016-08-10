@@ -34,7 +34,7 @@ setInterval(function() {
  *  @param shutterSpeed the required shutterSpeed
  */
 function takePhoto(type, luminance, shutterSpeed) {
-    if (luminance === 0) {
+    if (luminance == 0) {
         shutterSpeed = 6000
     }
     var spawnSync = require('child_process').spawnSync
