@@ -35,7 +35,7 @@ setInterval(function() {
  */
 function takePhoto(type, luminance, shutterSpeed) {
     if (luminance === 0) {
-        shutterSpeed = 6
+        shutterSpeed = 6000
     }
     var spawnSync = require('child_process').spawnSync
         // filename of new photo
