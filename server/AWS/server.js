@@ -29,16 +29,24 @@ exports.handler = (event, context, callback) => {
     var decodedImage = new Buffer(req.body.image, 'base64');
     fs.writeFileSync(tempImagePath, decodedImage);
 
-    fs.readFile(tempImagePath, function(err, data) {
-        s3.putObject({
-            Bucket: s3BucketName,
-            Key: "image_" + req.body.timestamp + ".jpg",
-            Body: data,
-            ContentType: 'JPG'
-        }, function(err, data) {
-            if (err) console.log(err, err.stack); // an error occurred
-            else console.log(data); // successful response
-        });
+    // flip image
+    Jimp.read(tempImagePath, function(err, image) {
+
+      image.flip(true, false)
+      image.write(tempImagePath)
+      image.flip(true, false)
+
+      fs.readFile(tempImagePath, function(err, data) {
+          s3.putObject({
+              Bucket: s3BucketName,
+              Key: "image_" + req.body.timestamp + ".jpg",
+              Body: data,
+              ContentType: 'JPG'
+          }, function(err, data) {
+              if (err) console.log(err, err.stack); // an error occurred
+              else console.log(data); // successful response
+          });
+      })
     })
 
     // lens barrel distortion
@@ -53,6 +61,10 @@ exports.handler = (event, context, callback) => {
             if (err) throw err;
 
             Jimp.read(tempImagePath, function(err, image) {
+
+              image.flip(true, false)
+              image.write(tempImagePath)
+              image.flip(true, false)
 
 
                 // counts the cloud pixels
@@ -76,7 +88,7 @@ exports.handler = (event, context, callback) => {
                         location.lat = (JSON.parse(body.toString())).loc[0].geometry.coordinates[1]
 
                         // current sun position
-                        var sunPos = SunCalc.getPosition(new Date(req.body.timestamp), location.lon, location.lat)
+                        var sunPos = SunCalc.getPosition(new Date(req.body.timestamp), location.lat, location.lon)
                         sunPos.azimuth *= (180 / Math.PI)
                         sunPos.azimuth += 180
 
@@ -122,7 +134,7 @@ exports.handler = (event, context, callback) => {
                                     }
                                 }
                                 // TODO: add thereshold when sun has no impact on image
-                                if (alpha > azimin && alpha < azimax && sunPos.altitude > 75) {
+                                if (alpha > azimin && alpha < azimax && sunPos.altitude > 35) {
                                     image.setPixelColor(0x000000ff, x, y);
                                 } else {
 
