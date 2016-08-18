@@ -134,7 +134,7 @@ exports.handler = (event, context, callback) => {
                                     }
                                 }
                                 // TODO: add thereshold when sun has no impact on image
-                                if (alpha > azimin && alpha < azimax && sunPos.altitude > 35) {
+                                if (alpha > azimin && alpha < azimax && sunPos.altitude > 15) {
                                     image.setPixelColor(0x000000ff, x, y);
                                 } else {
 
