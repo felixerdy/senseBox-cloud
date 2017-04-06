@@ -36,17 +36,17 @@ exports.handler = (event, context, callback) => {
       image.write(tempImagePath)
       image.flip(true, false)
 
-      // fs.readFile(tempImagePath, function(err, data) {
-      //     s3.putObject({
-      //         Bucket: s3BucketName,
-      //         Key: "image_" + req.body.timestamp + ".jpg",
-      //         Body: data,
-      //         ContentType: 'JPG'
-      //     }, function(err, data) {
-      //         if (err) console.log(err, err.stack); // an error occurred
-      //         else console.log(data); // successful response
-      //     });
-      // })
+      fs.readFile(tempImagePath, function(err, data) {
+          s3.putObject({
+              Bucket: s3BucketName,
+              Key: "image_" + req.body.timestamp + ".jpg",
+              Body: data,
+              ContentType: 'JPG'
+          }, function(err, data) {
+              if (err) console.log(err, err.stack); // an error occurred
+              else console.log(data); // successful response
+          });
+      })
     })
 
     // lens barrel distortion
@@ -80,10 +80,7 @@ exports.handler = (event, context, callback) => {
                     lat: 51.9
                 }
 
-                var sunPixels = 0;
-
                 // GET location of sensesBox trough senseBox API
-                // request('https://api.osem.vo1d.space/boxes/' + req.body.sensebox_id, function(error, response, body) {
                 request('https://api.opensensemap.org/boxes/' + req.body.sensebox_id, function(error, response, body) {
                     if (!error && response.statusCode == 200) {
                         console.log(JSON.parse(body.toString()).loc[0].geometry.coordinates)
@@ -139,7 +136,6 @@ exports.handler = (event, context, callback) => {
                                 // TODO: add thereshold when sun has no impact on image
                                 if (alpha > azimin && alpha < azimax && sunPos.altitude > 15) {
                                     image.setPixelColor(0x000000ff, x, y);
-                                    sunPixels++;
                                 } else {
 
                                     var hex = image.getPixelColor(x, y)
@@ -164,7 +160,7 @@ exports.handler = (event, context, callback) => {
                             }
                         }
                         // calculate coverage in %
-                        var coverage = ((counter / ((image.bitmap.width * image.bitmap.height)-sunPixels)) * 100)
+                        var coverage = ((counter / (image.bitmap.width * image.bitmap.height)) * 100)
                         console.log('coverage: ' + coverage)
 
                         // TODO: currently only one box is supported
@@ -172,8 +168,8 @@ exports.handler = (event, context, callback) => {
 
                         console.log('averageCoverage.length ' + averageCoverage.length);
 
-                        // use 4 measurements to calculate the average coverage during the last interval
-                        if (averageCoverage.length === 4) {
+                        // use 6 measurements to calculate the average coverage during the last interval
+                        if (averageCoverage.length === 6) {
                             var sum = 0
                             for (var i = 0; i < averageCoverage.length; i++) {
                                 sum += averageCoverage[i]
@@ -194,17 +190,17 @@ exports.handler = (event, context, callback) => {
                         image.flip(true, false)
                         image.write('/tmp/image_classified.jpg')
 
-                        // fs.readFile('/tmp/image_classified.jpg', function(err, data) {
-                        //     s3.putObject({
-                        //         Bucket: s3BucketName,
-                        //         Key: "image_" + req.body.timestamp + "_classified.jpg",
-                        //         Body: data,
-                        //         ContentType: 'JPG'
-                        //     }, function(err, data) {
-                        //         if (err) console.log(err, err.stack); // an error occurred
-                        //         else console.log(data); // successful response
-                        //     });
-                        // })
+                        fs.readFile('/tmp/image_classified.jpg', function(err, data) {
+                            s3.putObject({
+                                Bucket: s3BucketName,
+                                Key: "image_" + req.body.timestamp + "_classified.jpg",
+                                Body: data,
+                                ContentType: 'JPG'
+                            }, function(err, data) {
+                                if (err) console.log(err, err.stack); // an error occurred
+                                else console.log(data); // successful response
+                            });
+                        })
 
                     }
                 })
@@ -220,29 +216,28 @@ exports.handler = (event, context, callback) => {
 function postToOSeM(coverage, sensebox_id, sensor_id, timestamp) {
     // post measured coverage
     request.post({
-      //url: `https://api.osem.vo1d.space/boxes/${sensebox_id}/${sensor_id}`,
-        url: `https://api.opensensemap.org/boxes/${sensebox_id}/${sensor_id}`,
-        json: {
-          value: coverage.toFixed(2).toString(),
-          createdAt: timestamp.toISOString()
+        url: 'https://api.opensensemap.org/boxes/' + sensebox_id + '/' + sensor_id,
+        form: {
+            value: coverage.toFixed(2).toString(),
+            createdAt: timestamp.toISOString()
         }
     }, function(err, httpResponse, body) {
-        console.log(`own post respond: ${httpResponse.body}`)
+        console.log('own post respond: ' + httpResponse.statusCode)
     });
 
     // get ifgi ceilometer coverage and post it
-    // request('http://www.uni-muenster.de/Klima/data/0017behg_de.txt', function(error, response, body) {
-    //     if (!error && response.statusCode == 200) {
-    //         var ifgiCoverage = body.split('/8')[0]
-    //         request.post({
-    //             url: 'https://api.opensensemap.org/boxes/' + sensebox_id + '/5784ec9a6078ab1200a4f73d',
-    //             form: {
-    //                 value: ifgiCoverage,
-    //                 createdAt: (new Date()).toISOString()
-    //             }
-    //         }, function(err, httpResponse, body) {
-    //             console.log('ifgi post respond: ' + httpResponse.statusCode)
-    //         });
-    //     }
-    // })
+    request('http://www.uni-muenster.de/Klima/data/0017behg_de.txt', function(error, response, body) {
+        if (!error && response.statusCode == 200) {
+            var ifgiCoverage = body.split('/8')[0]
+            request.post({
+                url: 'https://api.opensensemap.org/boxes/' + sensebox_id + '/5784ec9a6078ab1200a4f73d',
+                form: {
+                    value: ifgiCoverage,
+                    createdAt: (new Date()).toISOString()
+                }
+            }, function(err, httpResponse, body) {
+                console.log('ifgi post respond: ' + httpResponse.statusCode)
+            });
+        }
+    })
 }
